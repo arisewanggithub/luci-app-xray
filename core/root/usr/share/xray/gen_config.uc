@@ -61,7 +61,8 @@ function inbounds(proxy, config, extra_inbound) {
 function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns) {
     let result = [
         blackhole_outbound(),
-        direct_outbound("direct", null),
+        direct_outbound("direct", null, false),
+        direct_outbound("dynamic_direct", null, true),
         ...dns_server_outbounds(proxy),
         ...manual_tproxy_outbounds(config, manual_tproxy),
         ...bridge_outbounds(config, bridge)
@@ -129,7 +130,7 @@ function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns) {
                     push(direct_rules, {
                         type: "field",
                         inboundTag: [...built_in_tcp_inbounds, ...built_in_udp_inbounds],
-                        outboundTag: "direct",
+                        outboundTag: "dynamic_direct",
                         ip: geoip_direct_code_list
                     });
                 }
@@ -138,7 +139,7 @@ function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns) {
                     push(direct_rules, {
                         type: "field",
                         inboundTag: [...tproxy_tcp_inbound_v6_tags, ...tproxy_udp_inbound_v6_tags],
-                        outboundTag: "direct",
+                        outboundTag: "dynamic_direct",
                         ip: geoip_direct_code_list_v6
                     });
                 }
@@ -260,7 +261,7 @@ function gen_config() {
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
-    return custom_configuration_hook({
+    let result = {
         inbounds: inbounds(general, config, extra_inbound),
         outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
         dns: dns_conf(general, config, manual_tproxy, fakedns),
@@ -273,15 +274,19 @@ function gen_config() {
             place: "holder"
         } : null,
         observatory: observatory(general, manual_tproxy),
-        reverse: {
-            bridges: bridges(bridge)
-        },
         routing: {
             domainStrategy: general["routing_domain_strategy"] || "AsIs",
             rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns),
             balancers: balancers(general, extra_inbound, fakedns)
         }
-    });
+    };
+    const bridges_deprecated = bridges(bridge);
+    if (length(bridges_deprecated) > 0) {
+        result["reverse"] = {
+            bridges: bridges_deprecated
+        };
+    };
+    return custom_configuration_hook(result);
 }
 
-print(gen_config());
+printf("%.4J", gen_config());
